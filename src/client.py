@@ -4,27 +4,79 @@ import json
 import urllib.parse
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
+import ssl
+import keyring
 import requests
+from requests.adapters import HTTPAdapter
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 
-# Automatically load from project root .env.local or .env if present
-root_dir = Path(__file__).resolve().parent.parent.parent
+# Automatically load from repo root .env.local or .env if present
+root_dir = Path(__file__).resolve().parent.parent
 load_dotenv(root_dir / ".env.local")
 load_dotenv(root_dir / ".env")
 
-BASE_URL = os.getenv("LMS_BASE_URL", "https://lms.nust.edu.pk")
+BASE_URL = os.getenv("LMS_BASE_URL") or os.getenv("LMS_URL") or "https://lms.nust.edu.pk"
+KEYRING_SERVICE = "questlms"
+SESSION_FILE = Path.home() / ".cache" / "questlms" / "session.json"
+
+
+def load_credentials() -> Tuple[str, str]:
+    """Read credentials from env vars / .env.local first, then the OS keychain."""
+    username = os.getenv("LMS_USERNAME", "")
+    password = os.getenv("LMS_PASSWORD", "")
+    if username and password:
+        return username, password
+    try:
+        username = username or keyring.get_password(KEYRING_SERVICE, "username") or ""
+        if username:
+            password = password or keyring.get_password(KEYRING_SERVICE, username) or ""
+    except keyring.errors.KeyringError:
+        pass
+    return username, password
+
+
+def save_credentials(username: str, password: str):
+    """Store credentials in the OS keychain (macOS Keychain, Windows Credential Locker, Secret Service)."""
+    keyring.set_password(KEYRING_SERVICE, "username", username)
+    keyring.set_password(KEYRING_SERVICE, username, password)
+
+
+def clear_credentials():
+    """Remove stored credentials from the OS keychain and drop the cached session."""
+    username = keyring.get_password(KEYRING_SERVICE, "username")
+    for key in filter(None, [username, "username"]):
+        try:
+            keyring.delete_password(KEYRING_SERVICE, key)
+        except keyring.errors.PasswordDeleteError:
+            pass
+    SESSION_FILE.unlink(missing_ok=True)
+
+
+class LegacyTLSAdapter(HTTPAdapter):
+    """Allow legacy TLS renegotiation, which the LMS server requires but OpenSSL 3 blocks by default."""
+
+    def init_poolmanager(self, *args, **kwargs):
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        ctx.options |= getattr(ssl, "OP_LEGACY_SERVER_CONNECT", 0x4)
+        kwargs["ssl_context"] = ctx
+        return super().init_poolmanager(*args, **kwargs)
 
 
 class NustLMSClient:
     """Session-managed client for NUST Moodle LMS."""
 
     def __init__(self, username: Optional[str] = None, password: Optional[str] = None, session_file: Optional[str] = None):
-        self.username = username or os.getenv("LMS_USERNAME", "")
-        self.password = password or os.getenv("LMS_PASSWORD", "")
+        if not (username and password):
+            username, password = load_credentials()
+        self.username = username
+        self.password = password
         self.base_url = BASE_URL.rstrip("/")
-        self.session_file = Path(session_file or (Path.home() / ".cache" / "questlms" / "session.json"))
+        self.session_file = Path(session_file or SESSION_FILE)
         self.session = requests.Session()
+        self.session.mount("https://", LegacyTLSAdapter())
         self.session.headers.update({
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
@@ -48,7 +100,9 @@ class NustLMSClient:
                 "user_name": self.user_name,
                 "user_id": self.user_id,
             }
-            with open(self.session_file, "w") as f:
+            # Session cookies grant LMS access, so keep the cache readable by the owner only
+            fd = os.open(self.session_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w") as f:
                 json.dump(data, f)
         except Exception:
             pass
@@ -96,7 +150,7 @@ class NustLMSClient:
 
         if not self.username or not self.password:
             raise ValueError(
-                "LMS_USERNAME and LMS_PASSWORD must be set in your environment or .env.local file"
+                "No LMS credentials found. Run `.venv/bin/python3 src/cli.py login` to store them in your OS keychain"
             )
 
         # 1. Fetch login page to retrieve logintoken

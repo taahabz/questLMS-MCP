@@ -3,13 +3,19 @@
 
 import sys
 import json
+import getpass
 import argparse
-from client import NustLMSClient
+from client import NustLMSClient, SESSION_FILE, save_credentials, clear_credentials
 
 
 def main():
     parser = argparse.ArgumentParser(description="QuestLMS Terminal Tool")
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
+
+    # Credentials
+    login_parser = subparsers.add_parser("login", help="Verify credentials and store them in your OS keychain")
+    login_parser.add_argument("--username", type=str, help="LMS username (prompted if omitted)")
+    subparsers.add_parser("logout", help="Remove stored credentials and cached session")
 
     # Status / login
     subparsers.add_parser("status", help="Check LMS login status and profile")
@@ -43,6 +49,25 @@ def main():
     if not args.command:
         parser.print_help()
         sys.exit(1)
+
+    if args.command == "login":
+        username = args.username or input("LMS username: ").strip()
+        password = getpass.getpass("LMS password: ")
+        # Drop any cached session so the password is actually checked against the LMS
+        SESSION_FILE.unlink(missing_ok=True)
+        try:
+            res = NustLMSClient(username, password).login()
+        except Exception as e:
+            print(f"❌ Login failed, nothing saved: {e}", file=sys.stderr)
+            sys.exit(1)
+        save_credentials(username, password)
+        print(f"✅ Logged in as {res.get('user')}; credentials saved to your OS keychain.")
+        return
+
+    if args.command == "logout":
+        clear_credentials()
+        print("✅ Removed stored credentials and cached session.")
+        return
 
     client = NustLMSClient()
 

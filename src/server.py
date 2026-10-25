@@ -38,7 +38,7 @@ def lms_check_session() -> Dict[str, Any]:
         return {
             "status": "error",
             "message": str(e),
-            "hint": "Ensure LMS_USERNAME and LMS_PASSWORD are set in your environment or in .env.local"
+            "hint": "Run `.venv/bin/python3 src/cli.py login` in the questLMS-MCP folder to store credentials in your OS keychain, then reconnect the MCP server"
         }
 
 

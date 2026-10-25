@@ -1,112 +1,177 @@
 # QuestLMS MCP Server ⚡
-### Model Context Protocol (MCP) Server for NUST LMS (`lms.nust.edu.pk`)
+### Connect Claude to NUST LMS (`lms.nust.edu.pk`)
 
-Seamlessly connect **Claude Code** (Terminal CLI), **Claude Desktop**, Cursor, or any MCP-compatible AI agent directly to NUST Moodle.
+An [MCP](https://modelcontextprotocol.io) server that lets **Claude Code**, **Claude Desktop**, Cursor, or any MCP-compatible agent read your NUST Moodle: check deadlines, see what you haven't submitted, download lab manuals, and upload solutions.
 
-Let Claude check pending deadlines, download lab manuals & starter archives, solve lab exercises, and upload completed submissions directly through your terminal.
+> **No hosting required.** The server runs locally on your own machine — Claude launches it in the background when needed — and logs in with *your* LMS account. Your password never leaves your computer except to log in to the LMS itself.
 
----
-
-## 🛠️ Available MCP Tools
-
-Claude has direct access to the following 7 tools:
-
-| Tool Name | Parameters | Description |
-| :--- | :--- | :--- |
-| `lms_check_session` | *None* | Verifies login session and student profile information. |
-| `lms_get_deadlines` | `limit` (default: 15) | Pulls all upcoming assignment and lab deadlines sorted by urgency. |
-| `lms_list_courses` | *None* | Lists all semester courses you are currently enrolled in. |
-| `lms_get_course_contents` | `course_id` | Scrapes course sections for lecture slides, lab manuals, and links. |
-| `lms_get_assignment` | `assign_id` | Retrieves rubric, description, submission status, and attached file links. |
-| `lms_download_lab_manual` | `assign_id, target_dir` | Authenticates and downloads attached manuals/starter files to your local folder. |
-| `lms_submit_lab` | `assign_id, file_path` | Uploads and saves your solution file directly to LMS. |
+Companion project: [QuestLMS Chrome extension](https://github.com/taahabz/questLMS).
 
 ---
 
-## ⚡ Quick Setup
+## ✅ Requirements
 
-### 1. Configure Credentials
-Add your NUST LMS student credentials to `.env.local` in the project root:
-```env
-LMS_USERNAME=your_roll_number.dept
-LMS_PASSWORD=your_lms_password
-```
-*(This file is automatically ignored by git and will never be shared).*
+- **Python 3.10+** — check with `python3 --version`
+- **Git**
+- **Claude Code** ([install guide](https://docs.claude.com/en/docs/claude-code)) or Claude Desktop
+- Your NUST LMS username (e.g. `yourname.bscs23seecs`) and password
 
 ---
 
-### 2. Connect to Claude Code (Terminal)
+## 🚀 Setup (about 2 minutes)
 
-To add this MCP server to **Claude Code** in terminal, run:
+### 1. Clone the repo
 
 ```bash
-claude mcp add nust-lms -- python3 /Users/taahabz/projects/Personal/questLMS/mcp-server/src/server.py
+git clone https://github.com/taahabz/questLMS-MCP.git
+cd questLMS-MCP
 ```
-*(Or specify the venv Python binary: `/Users/taahabz/projects/Personal/questLMS/mcp-server/.venv/bin/python3`)*
+
+### 2. Run the setup script
+
+```bash
+./setup.sh
+```
+
+It will:
+
+1. Create a private Python environment in `.venv/` and install dependencies.
+2. Ask for your LMS **username** and **password** (the password is hidden as you type), test them by logging in to the LMS, and — only if login succeeds — save them to your **operating system's keychain** (macOS Keychain, Windows Credential Locker, or Linux Secret Service). Nothing is written to a plain-text file.
+3. Register the server with Claude Code as `nust-lms`.
+
+<details>
+<summary>Windows (no bash)?</summary>
+
+Run these in PowerShell from the repo folder:
+
+```powershell
+python -m venv .venv
+.venv\Scripts\python -m pip install -r requirements.txt
+.venv\Scripts\python src\cli.py login
+claude mcp add nust-lms --scope user -- "$PWD\.venv\Scripts\python.exe" "$PWD\src\server.py"
+```
+</details>
+
+### 3. Start using it
+
+Open a **new** Claude Code session (or type `/mcp` in an existing one and reconnect `nust-lms`), then ask:
+
+> *"What submissions do I have left on LMS?"*
+
+To confirm it's connected, type `/mcp` — `nust-lms` should show as **connected** with 7 tools.
 
 ---
 
-### 3. Connect to Claude Desktop
+## 🖥️ Claude Desktop (optional)
 
-Open your Claude Desktop configuration file:
-- **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
+Run `./setup.sh` first so your credentials are in the keychain. Then open the config file:
 
-Add the `nust-lms` server to your `mcpServers` object:
+- **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
+
+Add the server, replacing `/path/to/questLMS-MCP` with where you cloned the repo (run `pwd` inside the folder to get it):
 
 ```json
 {
   "mcpServers": {
     "nust-lms": {
-      "command": "/Users/taahabz/projects/Personal/questLMS/mcp-server/.venv/bin/python3",
-      "args": [
-        "/Users/taahabz/projects/Personal/questLMS/mcp-server/src/server.py"
-      ],
-      "env": {
-        "PYTHONPATH": "/Users/taahabz/projects/Personal/questLMS/mcp-server/src",
-        "LMS_USERNAME": "your_roll_number.dept",
-        "LMS_PASSWORD": "your_lms_password"
-      }
+      "command": "/path/to/questLMS-MCP/.venv/bin/python3",
+      "args": ["/path/to/questLMS-MCP/src/server.py"]
     }
   }
 }
 ```
 
-Restart Claude Desktop, and you will see the hammer icon 🔨 with all 7 LMS tools active.
+On Windows use `.venv\\Scripts\\python.exe` and `src\\server.py`. Restart Claude Desktop; the LMS tools appear under the 🔨 icon.
 
 ---
 
-## 💬 Prompts to Try with Claude in Terminal
+## 🔐 Managing your credentials
 
-Once connected, you can give Claude high-level instructions:
+| Task | Command |
+| :--- | :--- |
+| Change password / switch account | `.venv/bin/python3 src/cli.py login` |
+| Remove credentials from this machine | `.venv/bin/python3 src/cli.py logout` |
+| Check you're logged in | `.venv/bin/python3 src/cli.py status` |
 
-- **Check deadlines**:
-  > *"Claude, check my upcoming deadlines on NUST LMS."*
+After changing credentials, reconnect the server in Claude with `/mcp`.
 
-- **Download and inspect a lab**:
-  > *"Download the lab manual and starter code for Assignment 2 into `./labs/lab2/` and summarize the requirements."*
+**Where things are stored**
+- Credentials: OS keychain, service name `questlms`.
+- Login session cookies: `~/.cache/questlms/session.json`, readable only by your user account.
 
-- **Work on the lab**:
-  > *"Solve Exercise 1 and Exercise 2 from the lab manual, implement the unit tests, and run them."*
-
-- **Upload solution**:
-  > *"Submit `./labs/lab2/solution.py` to LMS for assignment ID 29895."*
+**No keychain available** (headless Linux, CI)? Set `LMS_USERNAME` and `LMS_PASSWORD` as environment variables, or copy `.env.example` to `.env.local` and fill it in. These take precedence over the keychain. `.env.local` is gitignored — never commit it.
 
 ---
 
-## 🧪 Testing with Standalone CLI
+## 🛠️ Available tools
 
-You can also test any action manually from your terminal without opening Claude:
+| Tool | Parameters | What it does |
+| :--- | :--- | :--- |
+| `lms_check_session` | — | Verifies your login and shows your profile. |
+| `lms_get_deadlines` | `limit` (default 15) | Upcoming assignment, lab, and quiz deadlines, most urgent first. |
+| `lms_list_courses` | — | Courses you're enrolled in this semester. |
+| `lms_get_course_contents` | `course_id` | Sections of a course: slides, lab manuals, links. |
+| `lms_get_assignment` | `assign_id` | Description, due date, submission status, and attached files. |
+| `lms_download_lab_manual` | `assign_id`, `target_dir` | Downloads an assignment's attached manuals/starter files. |
+| `lms_submit_lab` | `assign_id`, `file_path` | Uploads your solution file to the assignment. |
+
+`assign_id` is the number in an LMS link like `mod/assign/view.php?id=12345`.
+
+> ⚠️ `lms_submit_lab` really submits to the LMS. Claude Code asks for permission before running tools; read what it's about to upload before approving.
+
+---
+
+## 💬 Things to ask Claude
+
+- *"Check my upcoming deadlines on NUST LMS."*
+- *"Which assignments haven't I submitted yet?"*
+- *"Download the lab manual for assignment 12345 into `./labs/lab2/` and summarize the requirements."*
+- *"Submit `./labs/lab2/solution.py` to assignment 12345."*
+
+---
+
+## 🧪 Command-line use (without Claude)
 
 ```bash
-# Check login status
-./mcp-server/.venv/bin/python3 mcp-server/src/cli.py status
+.venv/bin/python3 src/cli.py status
+.venv/bin/python3 src/cli.py deadlines --limit 20
+.venv/bin/python3 src/cli.py courses
+.venv/bin/python3 src/cli.py course <course_id>
+.venv/bin/python3 src/cli.py assign <assign_id>
+.venv/bin/python3 src/cli.py download <assign_id> --dest ./labs/lab7
+.venv/bin/python3 src/cli.py submit <assign_id> ./solution.zip
+```
 
-# View deadlines
-./mcp-server/.venv/bin/python3 mcp-server/src/cli.py deadlines
+---
 
-# List enrolled courses
-./mcp-server/.venv/bin/python3 mcp-server/src/cli.py courses
+## 🩺 Troubleshooting
 
-# Download lab files
-./mcp-server/.venv/bin/python3 mcp-server/src/cli.py download 29895 --dest ./labs/lab7
+| Symptom | Fix |
+| :--- | :--- |
+| `No LMS credentials found` | Run `.venv/bin/python3 src/cli.py login`, then `/mcp` → reconnect. |
+| `Login failed` during setup | Check your username/password by logging in at lms.nust.edu.pk in a browser. |
+| `nust-lms` shows *failed* in `/mcp` | Re-run `./setup.sh` — usually the repo folder was moved, which breaks the `.venv` path. |
+| `SSL: UNSAFE_LEGACY_RENEGOTIATION_DISABLED` | You're on an old copy; `git pull`. The client handles the LMS's legacy TLS. |
+| Can't reach the LMS at all | Some campus/VPN networks block it; try another network. |
+| Stale or wrong account | `.venv/bin/python3 src/cli.py logout`, then `login` again. |
+
+---
+
+## 🔄 Updating
+
+```bash
+cd questLMS-MCP
+git pull
+.venv/bin/python3 -m pip install -r requirements.txt
+```
+
+Then `/mcp` → reconnect `nust-lms`.
+
+## 🗑️ Uninstalling
+
+```bash
+.venv/bin/python3 src/cli.py logout     # removes keychain entries + session cache
+claude mcp remove nust-lms --scope user
+cd .. && rm -rf questLMS-MCP
 ```
