@@ -109,16 +109,16 @@ After changing credentials, reconnect the server in Claude with `/mcp`.
 | Tool | Parameters | What it does |
 | :--- | :--- | :--- |
 | `lms_check_session` | — | Verifies your login and shows your profile. |
-| `lms_get_deadlines` | `limit` (default 15) | Upcoming assignment, lab, and quiz deadlines, most urgent first. |
-| `lms_list_courses` | — | Courses you're enrolled in this semester. |
+| `lms_get_deadlines` | `limit` (default 15), `include_overdue` (default true) | Pending deadlines still needing action: overdue first, then upcoming. |
+| `lms_list_courses` | `include_past` (default false) | Courses you're enrolled in this semester. |
 | `lms_get_course_contents` | `course_id` | Sections of a course: slides, lab manuals, links. |
-| `lms_get_assignment` | `assign_id` | Description, due date, submission status, and attached files. |
-| `lms_download_lab_manual` | `assign_id`, `target_dir` | Downloads an assignment's attached manuals/starter files. |
-| `lms_submit_lab` | `assign_id`, `file_path` | Uploads your solution file to the assignment. |
+| `lms_get_assignment` | `assign_id` | Description, dates, submission/draft status, instructor files, and your submitted files. |
+| `lms_download_lab_manual` | `assign_id`, `target_dir` | Downloads the instructor's attached manuals/starter files. |
+| `lms_submit_lab` | `assign_id`, `file_path`, `finalize` (default false) | Uploads a file and saves your submission; `finalize` submits it for grading. |
 
 `assign_id` is the number in an LMS link like `mod/assign/view.php?id=12345`.
 
-> ⚠️ `lms_submit_lab` really submits to the LMS. Claude Code asks for permission before running tools; read what it's about to upload before approving.
+> ⚠️ `lms_submit_lab` really changes your LMS submission. Without `finalize` it only saves a draft, and on assignments that submit as soon as they're saved it refuses and uploads nothing. With `finalize: true` it submits for grading and accepts the submission statement for you, which usually can't be undone. Claude Code asks for permission before running tools: check the file and the `finalize` value before approving.
 
 ---
 
@@ -127,7 +127,8 @@ After changing credentials, reconnect the server in Claude with `/mcp`.
 - *"Check my upcoming deadlines on NUST LMS."*
 - *"Which assignments haven't I submitted yet?"*
 - *"Download the lab manual for assignment 12345 into `./labs/lab2/` and summarize the requirements."*
-- *"Submit `./labs/lab2/solution.py` to assignment 12345."*
+- *"Upload `./labs/lab2/solution.py` to assignment 12345 as a draft."*
+- *"Submit it for grading."* (Claude should confirm with you before using `finalize`.)
 
 ---
 
@@ -136,11 +137,12 @@ After changing credentials, reconnect the server in Claude with `/mcp`.
 ```bash
 .venv/bin/python3 src/cli.py status
 .venv/bin/python3 src/cli.py deadlines --limit 20
-.venv/bin/python3 src/cli.py courses
+.venv/bin/python3 src/cli.py courses [--all]
 .venv/bin/python3 src/cli.py course <course_id>
 .venv/bin/python3 src/cli.py assign <assign_id>
 .venv/bin/python3 src/cli.py download <assign_id> --dest ./labs/lab7
-.venv/bin/python3 src/cli.py submit <assign_id> ./solution.zip
+.venv/bin/python3 src/cli.py submit <assign_id> ./solution.zip            # saves a draft
+.venv/bin/python3 src/cli.py submit <assign_id> ./solution.zip --finalize # submits for grading
 ```
 
 ---
@@ -153,6 +155,8 @@ After changing credentials, reconnect the server in Claude with `/mcp`.
 | `Login failed` during setup | Check your username/password by logging in at lms.nust.edu.pk in a browser. |
 | `nust-lms` shows *failed* in `/mcp` | Re-run `./setup.sh` — usually the repo folder was moved, which breaks the `.venv` path. |
 | `SSL: UNSAFE_LEGACY_RENEGOTIATION_DISABLED` | You're on an old copy; `git pull`. The client handles the LMS's legacy TLS. |
+| `SSL: CERTIFICATE_VERIFY_FAILED` | Something on your network is intercepting HTTPS (some campus proxies do). Use another network; don't disable verification, since your password goes over this connection. |
+| Draft shows *not submitted for grading* | Ask Claude to submit it with `finalize: true`, or press **Submit assignment** on the LMS. |
 | Can't reach the LMS at all | Some campus/VPN networks block it; try another network. |
 | Stale or wrong account | `.venv/bin/python3 src/cli.py logout`, then `login` again. |
 

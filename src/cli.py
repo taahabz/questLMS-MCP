@@ -2,7 +2,6 @@
 """QuestLMS Terminal CLI for manual testing and quick inspection."""
 
 import sys
-import json
 import getpass
 import argparse
 from client import NustLMSClient, SESSION_FILE, save_credentials, clear_credentials
@@ -22,10 +21,12 @@ def main():
 
     # Deadlines
     dl_parser = subparsers.add_parser("deadlines", help="List upcoming assignment deadlines")
-    dl_parser.add_argument("--limit", type=int, default=10, help="Number of deadlines to show")
+    dl_parser.add_argument("--limit", type=int, default=10, help="Number of upcoming deadlines to show (max 50)")
+    dl_parser.add_argument("--no-overdue", action="store_true", help="Hide overdue items")
 
     # Courses
-    subparsers.add_parser("courses", help="List all enrolled courses")
+    courses_parser = subparsers.add_parser("courses", help="List enrolled courses (current semester)")
+    courses_parser.add_argument("--all", action="store_true", help="Include past courses")
 
     # Course contents
     cc_parser = subparsers.add_parser("course", help="Inspect contents of a course")
@@ -44,6 +45,7 @@ def main():
     sub_parser = subparsers.add_parser("submit", help="Submit a file to an assignment")
     sub_parser.add_argument("id", type=int, help="Assignment ID")
     sub_parser.add_argument("file", type=str, help="Path to solution file to submit")
+    sub_parser.add_argument("--finalize", action="store_true", help="Also submit for grading (usually irreversible)")
 
     args = parser.parse_args()
     if not args.command:
@@ -78,15 +80,18 @@ def main():
             print(f"🔑 Session Key: {res.get('sesskey')}")
 
         elif args.command == "deadlines":
-            deadlines = client.get_upcoming_deadlines(limit=args.limit)
-            print(f"\n⚡ Found {len(deadlines)} Upcoming Deadlines:")
+            deadlines = client.get_upcoming_deadlines(limit=args.limit, include_overdue=not args.no_overdue)
+            print(f"\n⚡ Found {len(deadlines)} Pending Deadlines:")
             for d in deadlines:
-                print(f" • [{d['due_date']}] {d['name']}")
+                flag = "⚠️  OVERDUE " if d["overdue"] else ""
+                print(f" • {flag}[{d['due_date']}] {d['name']}")
                 print(f"   Course: {d['course_name']} ({d['course_code']})")
-                print(f"   Link:   {d['action_url']}\n")
+                if d.get("assign_id"):
+                    print(f"   Assign ID: {d['assign_id']}")
+                print(f"   Link:   {d['url'] or d['action_url']}\n")
 
         elif args.command == "courses":
-            courses = client.get_enrolled_courses()
+            courses = client.get_enrolled_courses(include_past=args.all)
             print(f"\n📚 Enrolled Courses ({len(courses)}):")
             for c in courses:
                 print(f" • [ID {c['id']}] {c['fullname']} ({c['shortname']})")
@@ -95,20 +100,27 @@ def main():
             contents = client.get_course_contents(args.id)
             print(f"\n📖 {contents['title']}:")
             for sec in contents.get("sections", []):
-                print(f"\n  📁 {sec['section_name']}")
+                print(f"\n  {'↳ 📂' if sec.get('is_subsection') else '📁'} {sec['section_name']}")
                 for act in sec.get("activities", []):
-                    print(f"    - [{act['type']}] {act['name']} -> {act['url']}")
+                    print(f"    - [{act['type']} {act['module_id']}] {act['name']} -> {act['url']}")
 
         elif args.command == "assign":
             details = client.get_assignment_details(args.id)
             print(f"\n📝 {details['title']}")
-            print(f"   Status: {details['status']}")
+            print(f"   Status: {details['status']}  |  Grading: {details['grading_status']}")
             print(f"   Due:    {details['due_date']} ({details['time_remaining']})")
-            print(f"\n   Description:\n   {details['description'][:300]}...")
-            if details.get("attached_files"):
-                print("\n   Attached Files:")
-                for f in details["attached_files"]:
-                    print(f"    * {f['name']} ({f['url']})")
+            if details.get("cutoff_date"):
+                print(f"   Cut-off: {details['cutoff_date']}")
+            if details["is_draft"]:
+                hint = "" if details["can_submit_for_grading"] else " (LMS isn't offering a submit button: ask your instructor)"
+                print(f"   ⚠️  Draft saved but NOT submitted for grading{hint}")
+            description = details["description"]
+            print(f"\n   Description:\n   {description[:300]}{'...' if len(description) > 300 else ''}")
+            for label, key in (("Attached Files", "attached_files"), ("Your Submitted Files", "submitted_files"), ("Links", "links")):
+                if details.get(key):
+                    print(f"\n   {label}:")
+                    for f in details[key]:
+                        print(f"    * {f.get('name') or f.get('text')} ({f['url']})")
 
         elif args.command == "download":
             files = client.download_assignment_assets(args.id, args.dest)
@@ -117,8 +129,9 @@ def main():
                 print(f"  * {f}")
 
         elif args.command == "submit":
-            res = client.submit_assignment(args.id, args.file)
-            print(f"🚀 Submission result: {res['message']}")
+            res = client.submit_assignment(args.id, args.file, finalize=args.finalize)
+            print(f"🚀 {res['message']}")
+            print(f"   Files in submission: {', '.join(res['submitted_files'])}")
 
     except Exception as e:
         print(f"❌ Error: {e}", file=sys.stderr)
